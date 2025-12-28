@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secret Santa</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <div id="loginScreen" class="screen active">
+            <h1>🎄 Secret Santa 🎄</h1>
+            
+            <div id="bootstrapForm" class="login-form hidden">
+                <h2>Create First Admin</h2>
+                <p style="color: #666; margin-bottom: 20px;">No players found. Create the first admin account to get started.</p>
+                <label for="adminNameInput">Admin Name:</label>
+                <input type="text" id="adminNameInput" placeholder="Enter admin name">
+                
+                <label for="adminPasswordInput">Password:</label>
+                <input type="password" id="adminPasswordInput" placeholder="Enter password">
+                
+                <button id="createAdminBtn" class="btn btn-primary">Create Admin</button>
+                <div id="bootstrapError" class="error-message"></div>
+            </div>
+            
+            <div id="regularLoginForm" class="login-form">
+                <label for="playerSelect">Select your name:</label>
+                <select id="playerSelect">
+                    <option value="">-- Select --</option>
+                </select>
+                
+                <label for="passwordInput">Password:</label>
+                <input type="password" id="passwordInput" placeholder="Enter password">
+                
+                <button id="loginBtn" class="btn btn-primary">Login</button>
+                <div id="loginError" class="error-message"></div>
+            </div>
+        </div>
+
+        <div id="gameScreen" class="screen">
+            <h1>Secret Santa</h1>
+            <div class="game-content">
+                <div id="gameStatus" class="status-box">
+                    <p id="statusMessage">Loading...</p>
+                </div>
+                
+                <div id="spinSection" class="spin-section">
+                    <button id="spinBtn" class="btn btn-primary btn-large" disabled>Spin</button>
+                </div>
+                
+                <div id="resultSection" class="result-section hidden">
+                    <h2>Your Assignment:</h2>
+                    <div class="assignment-box">
+                        <p id="assignmentName" class="assignment-name"></p>
+                    </div>
+                </div>
+                
+                <button id="logoutBtn" class="btn btn-secondary">Logout</button>
+            </div>
+        </div>
+        <div id="adminScreen" class="screen">
+            <h1>Admin Panel</h1>
+            <div class="admin-content">
+                <div class="admin-section">
+                    <h2>Players</h2>
+                    <div class="player-form">
+                        <input type="text" id="newPlayerName" placeholder="Player name">
+                        <input type="password" id="newPlayerPassword" placeholder="Password">
+                        <button id="addPlayerBtn" class="btn btn-primary">Add Player</button>
+                    </div>
+                    <div id="playerList" class="player-list"></div>
+                </div>
+
+                <div class="admin-section">
+                    <h2>Game Control</h2>
+                    <div class="game-control">
+                        <div class="control-item">
+                            <label>
+                                <input type="checkbox" id="adminParticipates">
+                                Admin participates in game
+                            </label>
+                        </div>
+                        <div id="doubleSpinnerSection" class="control-item hidden">
+                            <label for="doubleSpinnerSelect">Double-spinner (required for odd number):</label>
+                            <select id="doubleSpinnerSelect">
+                                <option value="">-- Select --</option>
+                            </select>
+                        </div>
+                        <div class="control-buttons">
+                            <button id="startGameBtn" class="btn btn-primary" disabled>Start Game</button>
+                            <button id="resetGameBtn" class="btn btn-danger">Reset Game</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="admin-section">
+                    <h2>Password Reset</h2>
+                    <div class="password-reset-form">
+                        <select id="resetPlayerSelect">
+                            <option value="">-- Select player --</option>
+                        </select>
+                        <input type="password" id="newPassword" placeholder="New password">
+                        <button id="resetPasswordBtn" class="btn btn-secondary">Reset Password</button>
+                    </div>
+                </div>
+
+                <div class="admin-section">
+                    <h2>All Assignments</h2>
+                    <div id="allAssignments" class="assignments-list"></div>
+                </div>
+
+                <button id="adminLogoutBtn" class="btn btn-secondary">Logout</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
+
