@@ -100,6 +100,9 @@ function setupEventListeners() {
   document
     .getElementById("adminParticipates")
     .addEventListener("change", updateDoubleSpinnerSection);
+  document
+    .getElementById("toggleAssignmentsBtn")
+    .addEventListener("click", toggleAssignmentsView);
 }
 
 function showScreen(screenId) {
@@ -609,6 +612,23 @@ async function handleResetPassword() {
   }
 }
 
+let assignmentsVisible = false;
+
+function toggleAssignmentsView() {
+  assignmentsVisible = !assignmentsVisible;
+  const assignmentsDiv = document.getElementById("allAssignments");
+  const toggleBtn = document.getElementById("toggleAssignmentsBtn");
+
+  if (assignmentsVisible) {
+    assignmentsDiv.style.display = "block";
+    toggleBtn.textContent = "Hide Assignments";
+    loadAssignmentsData();
+  } else {
+    assignmentsDiv.style.display = "none";
+    toggleBtn.textContent = "Show Assignments";
+  }
+}
+
 async function loadAssignments() {
   try {
     const response = await fetch(`${API_BASE}/admin/assignments`, {
@@ -618,12 +638,50 @@ async function loadAssignments() {
     if (!response.ok) throw new Error("Failed to load assignments");
 
     const data = await response.json();
+    const assignmentsSection = document.getElementById("assignmentsSection");
+    const toggleBtn = document.getElementById("toggleAssignmentsBtn");
     const assignmentsDiv = document.getElementById("allAssignments");
 
-    if (!data.gameStarted) {
-      assignmentsDiv.innerHTML = "<p>Game has not started yet.</p>";
+    if (data.adminIsParticipating) {
+      assignmentsSection.style.display = "none";
       return;
     }
+
+    assignmentsSection.style.display = "block";
+
+    if (!data.gameStarted) {
+      toggleBtn.style.display = "none";
+      assignmentsDiv.innerHTML = "<p>Game has not started yet.</p>";
+      assignmentsDiv.style.display = "block";
+      return;
+    }
+
+    toggleBtn.style.display = "block";
+
+    if (assignmentsVisible) {
+      await loadAssignmentsData(data);
+    } else {
+      assignmentsDiv.style.display = "none";
+      assignmentsDiv.innerHTML = "";
+      toggleBtn.textContent = "Show Assignments";
+    }
+  } catch (error) {
+    console.error("Load assignments failed:", error);
+  }
+}
+
+async function loadAssignmentsData(data = null) {
+  try {
+    if (!data) {
+      const response = await fetch(`${API_BASE}/admin/assignments`, {
+        credentials: "include",
+      });
+      if (!response.ok) throw new Error("Failed to load assignments");
+      data = await response.json();
+    }
+
+    const assignmentsDiv = document.getElementById("allAssignments");
+    assignmentsDiv.style.display = "block";
 
     if (Object.keys(data.assignments).length === 0) {
       assignmentsDiv.innerHTML = "<p>No assignments yet.</p>";
@@ -634,7 +692,10 @@ async function loadAssignments() {
     Object.entries(data.assignments).forEach(([player, assignedTo]) => {
       const item = document.createElement("div");
       item.className = "assignment-item";
-      item.innerHTML = `<strong>${player}</strong> → ${assignedTo}`;
+      const displayValue = Array.isArray(assignedTo)
+        ? assignedTo.join(" and ")
+        : assignedTo;
+      item.innerHTML = `<strong>${player}</strong> → ${displayValue}`;
       assignmentsDiv.appendChild(item);
     });
 
@@ -646,7 +707,7 @@ async function loadAssignments() {
       assignmentsDiv.appendChild(info);
     }
   } catch (error) {
-    console.error("Load assignments failed:", error);
+    console.error("Load assignments data failed:", error);
   }
 }
 

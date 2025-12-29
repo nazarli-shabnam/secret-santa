@@ -391,11 +391,17 @@ app.get("/api/admin/assignments", validateSession, requireAdmin, (req, res) => {
     assignments[playerName] = assignedTo;
   });
 
+  //if admin is participating in the game, show the assignments
+  const adminName = req.session.name;
+  const adminIsParticipating = state.gameState.playerStatus.has(adminName) || 
+                               state.gameState.availablePool.includes(adminName);
+
   res.json({
     assignments,
     gameStarted: state.gameState.started,
     doubleSpinner: state.gameState.doubleSpinner,
     poolSize: state.gameState.availablePool.length,
+    adminIsParticipating,
   });
 });
 
