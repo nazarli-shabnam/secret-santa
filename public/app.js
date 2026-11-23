@@ -137,7 +137,8 @@ async function handleCreateAdmin() {
       currentRole = "admin";
       showAdminScreen();
     } else {
-      errorDiv.textContent = "Admin created but login failed. Please reload and log in.";
+      errorDiv.textContent = "Admin created but login failed. Please log in below.";
+      await loadPlayersForLogin();
     }
   } catch (error) {
     errorDiv.textContent = `Failed to create admin: ${error.message}`;

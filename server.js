@@ -13,7 +13,6 @@ const SETUP_CODE = process.env.SETUP_CODE || "";
 const DATA_FILE =
   process.env.DATA_FILE ||
   (fs.existsSync("/data") ? "/data/data.json" : path.join(__dirname, "data.json"));
-const IS_PROD = process.env.NODE_ENV === "production";
 
 const MAX_NAME_LENGTH = 40;
 const LOGIN_MAX_FAILURES = 5;
@@ -366,7 +365,9 @@ app.post("/api/login", (req, res) => {
   res.cookie("sessionId", sessionId, {
     httpOnly: true,
     sameSite: "strict",
-    secure: IS_PROD,
+    // Only mark the cookie secure when the request really came over https (via the
+    // proxy's X-Forwarded-Proto); a secure cookie on plain http is silently dropped.
+    secure: req.secure,
     maxAge: sessionMs,
   });
   res.json({ success: true, role: player.role });
