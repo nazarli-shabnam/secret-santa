@@ -26,7 +26,8 @@ npm test           # draw-logic tests
 3. Choose the rules: admin plays too?, family rule on/off, double-spinner (if odd).
 4. Either press **Start game now**, or set a **login deadline** first:
    - Everyone must log in before the deadline (the admin sees who is missing).
-   - When the timer ends, the draw starts automatically if everyone logged in.
+   - The draw is made as soon as you start the countdown. Only the admin can see it (and re-draw it) until the deadline; players just see the countdown.
+   - When the timer ends, players get their Spin button if everyone logged in.
    - If anyone is missing, the game is **cancelled**. Press Reset to try again.
 5. Players press **Fırlat** (Spin). A short "make sure it's you" screen shows for about 2.5 seconds, then the result appears and stays on their screen. The Spin button disappears once a player has used all their spins (once, or twice for the double-spinner), and the server refuses extra spins.
 6. The admin can always see the full draw at the bottom of the admin panel (hidden behind a "Show draw" button), even before anyone spins.

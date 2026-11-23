@@ -415,7 +415,7 @@ function renderBanner(d) {
   if (d.phase === "waiting") {
     banner.classList.add("waiting");
     const missing = d.waitingFor.length ? ` Still to log in: ${d.waitingFor.join(", ")}.` : " Everyone has logged in.";
-    banner.textContent = `Waiting for logins until ${formatDeadline(d.deadline)}. ${d.participantCount - d.waitingFor.length} of ${d.participantCount} logged in.${missing} The draw starts automatically.`;
+    banner.textContent = `Waiting for logins until ${formatDeadline(d.deadline)}. ${d.participantCount - d.waitingFor.length} of ${d.participantCount} logged in.${missing} The draw is already made (see Full draw below; you can re-draw it until the deadline, and players can't see it). Players get their Spin button at the deadline if everyone has logged in.`;
   } else if (d.phase === "cancelled") {
     banner.classList.add("cancelled");
     const reason = d.cancelReason || {};
@@ -655,10 +655,10 @@ async function loadAssignments() {
 
   // The full draw is always available to the admin, but hidden until asked for.
   section.classList.remove("hidden");
-  toggleBtn.classList.toggle("hidden", !data.gameStarted);
-  $("redrawSection").classList.toggle("hidden", !data.gameStarted);
-  if (!data.gameStarted) {
-    list.textContent = "The draw appears here once the game starts.";
+  toggleBtn.classList.toggle("hidden", !data.hasDraw);
+  $("redrawSection").classList.toggle("hidden", !data.hasDraw);
+  if (!data.hasDraw) {
+    list.textContent = "The draw appears here as soon as you start the game or schedule the countdown.";
     return;
   }
   if (!assignmentsVisible) {

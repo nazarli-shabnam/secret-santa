@@ -277,17 +277,9 @@ function checkDeadline() {
       loggedIn: gameState.loggedIn,
     };
   } else {
-    const draw = computeDraw(schedule);
-    if (draw.ok) {
-      beginGame(draw, schedule);
-    } else {
-      state.gameState = {
-        ...freshGameState(),
-        phase: "cancelled",
-        cancelReason: { error: draw.reason },
-        loggedIn: gameState.loggedIn,
-      };
-    }
+    // The draw was made when the countdown was scheduled (and may have been re-drawn
+    // since), so opening the game just means letting players see their Spin button.
+    state.gameState = { ...gameState, phase: "started", schedule: null };
   }
   save();
 }
@@ -585,6 +577,9 @@ app.post("/api/admin/start", validateSession, requireAdmin, (req, res) => {
       schedule: { ...options, deadline },
       enforceFamilies: options.enforceFamilies,
       adminParticipates: options.adminParticipates,
+      // Drawn now so the admin can check it (and re-draw) before players see anything.
+      doubleSpinner: draw.doubleSpinner,
+      plan: new Map(Object.entries(draw.assignments)),
       loggedIn: new Set([req.session.name]),
     };
     save();
@@ -600,8 +595,8 @@ app.post("/api/admin/start", validateSession, requireAdmin, (req, res) => {
 // seen (including a double-spinner's first spin) are kept exactly as they are.
 app.post("/api/admin/redraw", validateSession, requireAdmin, (req, res) => {
   const { gameState } = state;
-  if (gameState.phase !== "started") {
-    return res.status(400).json({ error: "There is no running draw to re-draw." });
+  if (gameState.phase !== "started" && gameState.phase !== "waiting") {
+    return res.status(400).json({ error: "There is no draw to re-draw." });
   }
 
   const participants = [...gameState.plan.keys()].map((name) => ({
@@ -682,6 +677,7 @@ app.get("/api/admin/assignments", validateSession, requireAdmin, (req, res) => {
   res.json({
     assignments,
     gameStarted: gameState.phase === "started",
+    hasDraw: gameState.plan.size > 0,
     doubleSpinner: gameState.doubleSpinner,
   });
 });
