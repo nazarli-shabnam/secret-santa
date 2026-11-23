@@ -15,10 +15,15 @@ const MAX_NAME_LENGTH = 40;
 const LOGIN_MAX_FAILURES = 5;
 const LOGIN_WINDOW_MS = 10 * 60 * 1000;
 const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
+// Once a player has used all their spins, their login only lasts this long
+// (RESULT_SESSION_MINUTES exists so the behaviour can be tested quickly).
+const RESULT_SESSION_MS = Number(process.env.RESULT_SESSION_MINUTES ?? 30) * 60 * 1000;
 const MAX_DEADLINE_MS = 60 * 24 * 60 * 60 * 1000;
 const DEADLINE_CHECK_MS = 5000;
 
-app.set("trust proxy", 1);
+// Number of reverse proxies in front of the app (Coolify/Traefik, Render: 1).
+// Set TRUST_PROXY=0 when exposing Node directly, so X-Forwarded-For can't be spoofed.
+app.set("trust proxy", Number(process.env.TRUST_PROXY ?? 1));
 app.use(express.json());
 app.use(cookieParser());
 app.use(express.static("public"));
@@ -115,18 +120,25 @@ function cleanString(value, max = MAX_NAME_LENGTH) {
 
 const loginFailures = new Map(); // key -> { count, windowStart }
 
-function throttleKey(req, name) {
-  return `${req.ip}|${name}`;
+// Two limits: per IP+name (tight), and per name alone (looser) so rotating IPs
+// can't brute-force one account.
+const LOGIN_MAX_FAILURES_PER_ACCOUNT = 20;
+
+function throttleKeys(req, name) {
+  return [
+    { key: `${req.ip}|${name}`, max: LOGIN_MAX_FAILURES },
+    { key: `account|${name}`, max: LOGIN_MAX_FAILURES_PER_ACCOUNT },
+  ];
 }
 
-function isThrottled(key) {
+function isThrottled({ key, max }) {
   const entry = loginFailures.get(key);
   if (!entry) return false;
   if (Date.now() - entry.windowStart > LOGIN_WINDOW_MS) {
     loginFailures.delete(key);
     return false;
   }
-  return entry.count >= LOGIN_MAX_FAILURES;
+  return entry.count >= max;
 }
 
 function recordFailure(key) {
@@ -154,6 +166,22 @@ function requireAdmin(req, res, next) {
     return res.status(403).json({ error: "Admin access required" });
   }
   next();
+}
+
+function hasFinishedSpinning(name) {
+  const { plan, spinCounts } = state.gameState;
+  const slots = plan.get(name);
+  return Boolean(slots) && (spinCounts.get(name) || 0) >= slots.length;
+}
+
+// Players (not the admin) are logged out RESULT_SESSION_MS after their final reveal.
+function shortenSessionsFor(name) {
+  const limit = Date.now() + RESULT_SESSION_MS;
+  for (const session of state.sessions.values()) {
+    if (session.name === name && session.role !== "admin") {
+      session.expires = Math.min(session.expires, limit);
+    }
+  }
 }
 
 function dropSessionsFor(name) {
@@ -225,6 +253,10 @@ function beginGame(draw, { adminParticipates, enforceFamilies }) {
 
 // Runs on a timer: when the login deadline passes, either start the draw or cancel.
 function checkDeadline() {
+  for (const [id, session] of state.sessions) {
+    if (session.expires < Date.now()) state.sessions.delete(id);
+  }
+
   const { gameState } = state;
   if (gameState.phase !== "waiting" || Date.now() < gameState.schedule.deadline) return;
 
@@ -301,8 +333,8 @@ app.post("/api/login", (req, res) => {
     return res.status(400).json({ error: "Name and password required" });
   }
 
-  const key = throttleKey(req, name);
-  if (isThrottled(key)) {
+  const limits = throttleKeys(req, name);
+  if (limits.some(isThrottled)) {
     return res
       .status(429)
       .json({ error: "Too many failed attempts. Try again in a few minutes." });
@@ -310,18 +342,20 @@ app.post("/api/login", (req, res) => {
 
   const player = getPlayer(name);
   if (!player || !passwordMatches(player, password)) {
-    recordFailure(key);
+    limits.forEach(({ key }) => recordFailure(key));
     return res.status(401).json({ error: "Invalid credentials" });
   }
 
-  loginFailures.delete(key);
+  loginFailures.delete(limits[0].key);
   state.gameState.loggedIn.add(name);
 
+  const sessionMs =
+    player.role !== "admin" && hasFinishedSpinning(name) ? RESULT_SESSION_MS : SESSION_MS;
   const sessionId = crypto.randomBytes(24).toString("hex");
   state.sessions.set(sessionId, {
     name,
     role: player.role,
-    expires: Date.now() + SESSION_MS,
+    expires: Date.now() + sessionMs,
   });
   save();
 
@@ -329,7 +363,7 @@ app.post("/api/login", (req, res) => {
     httpOnly: true,
     sameSite: "strict",
     secure: IS_PROD,
-    maxAge: SESSION_MS,
+    maxAge: sessionMs,
   });
   res.json({ success: true, role: player.role });
 });
@@ -351,7 +385,7 @@ function revealedFor(name) {
   return (plan.get(name) || []).slice(0, spinCounts.get(name) || 0);
 }
 
-// Players only ever get codes, never the result; the client turns them into text.
+// Players get state codes plus only the results they have already spun; the client turns them into text.
 app.get("/api/game/status", validateSession, (req, res) => {
   const { name, role } = req.session;
   const { gameState } = state;
@@ -376,6 +410,7 @@ app.get("/api/game/status", validateSession, (req, res) => {
       body.state = "ready";
       body.slots = slots.length;
       body.spun = gameState.spinCounts.get(name) || 0;
+      body.revealed = revealedFor(name); // only what this player has already spun
     } else {
       body.state = "notParticipating";
     }
@@ -384,7 +419,7 @@ app.get("/api/game/status", validateSession, (req, res) => {
   res.json(body);
 });
 
-// Reveals the player's next result. After the last one it simply shows them again.
+// Reveals the player's next result. Each player can spin only as many times as they have slots.
 app.post("/api/spin", validateSession, (req, res) => {
   const { name } = req.session;
   const { gameState } = state;
@@ -395,10 +430,13 @@ app.post("/api/spin", validateSession, (req, res) => {
   }
 
   const spinCount = gameState.spinCounts.get(name) || 0;
-  if (spinCount < slots.length) {
-    gameState.spinCounts.set(name, spinCount + 1);
-    save();
+  if (spinCount >= slots.length) {
+    return res.status(400).json({ error: "You have already spun" });
   }
+
+  gameState.spinCounts.set(name, spinCount + 1);
+  if (hasFinishedSpinning(name)) shortenSessionsFor(name);
+  save();
 
   res.json({ assignedTo: revealedFor(name) });
 });
@@ -590,21 +628,22 @@ app.post(
   }
 );
 
+// By design the admin can see the whole draw (even before players spin), whether or
+// not they play themselves. Players never get this: their status endpoint has no results.
 app.get("/api/admin/assignments", validateSession, requireAdmin, (req, res) => {
   const { gameState } = state;
   const assignments = {};
-  for (const name of gameState.plan.keys()) {
-    const revealed = revealedFor(name);
-    if (revealed.length) {
-      assignments[name] = revealed.length === 1 ? revealed[0] : revealed;
-    }
+  for (const [giver, receivers] of gameState.plan) {
+    assignments[giver] = {
+      receivers,
+      spun: gameState.spinCounts.get(giver) || 0,
+    };
   }
 
   res.json({
     assignments,
     gameStarted: gameState.phase === "started",
     doubleSpinner: gameState.doubleSpinner,
-    adminIsParticipating: gameState.plan.has(req.session.name),
   });
 });
 

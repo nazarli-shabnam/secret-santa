@@ -1,6 +1,5 @@
 const API = "/api";
 const SPIN_MS = 2500; // how long the "make sure it's you" screen shows before the result
-const RESULT_VISIBLE_MS = 30000; // the result hides itself again after this long
 
 let currentRole = null;
 let gameTimer = null;
@@ -8,7 +7,6 @@ let adminTimer = null;
 let countdownTimer = null;
 let deadline = null;
 let spinning = false;
-let revealTimer = null;
 
 const $ = (id) => document.getElementById(id);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -54,7 +52,6 @@ function stopTimers() {
   clearInterval(gameTimer);
   clearInterval(adminTimer);
   clearInterval(countdownTimer);
-  clearTimeout(revealTimer);
 }
 
 function setupEventListeners() {
@@ -205,7 +202,9 @@ async function refreshGame() {
   try {
     const { ok, status, data } = await api("/game/status");
     if (status === 401) {
+      // Logged out (e.g. 30 minutes after the final reveal): clear the result and ask to log in again.
       stopTimers();
+      resetRevealBox();
       showScreen("loginScreen");
       return;
     }
@@ -232,6 +231,12 @@ function renderGame(d) {
     else if (d.spun === 1) message = t("spinOnceMore");
   }
   $("gameMsg").textContent = message;
+
+  // The Spin button goes away once every spin is used; the result then stays on screen.
+  if (ready && !spinning) {
+    $("spinBtn").classList.toggle("hidden", d.spun >= d.slots);
+    if (d.revealed.length) showResult(d.revealed);
+  }
 
   if (waiting) renderWaiting(d);
   else {
@@ -268,8 +273,15 @@ function tickCountdown() {
   $("cs").textContent = pad(s % 60);
 }
 
+function showResult(names) {
+  const box = $("revealBox");
+  box.classList.remove("hidden", "busy");
+  $("boxLabel").textContent = t("resultLabel");
+  $("boxName").textContent = names.join(` ${t("and")} `);
+  $("boxNote").textContent = "";
+}
+
 function resetRevealBox() {
-  clearTimeout(revealTimer);
   $("revealBox").classList.add("hidden");
   $("revealBox").classList.remove("busy");
   $("boxLabel").textContent = "";
@@ -280,7 +292,6 @@ function resetRevealBox() {
 async function handleSpin() {
   if (spinning) return;
   spinning = true;
-  clearTimeout(revealTimer);
 
   const btn = $("spinBtn");
   btn.disabled = true;
@@ -296,10 +307,7 @@ async function handleSpin() {
     const [result] = await Promise.all([api("/spin", { method: "POST" }), sleep(SPIN_MS)]);
     box.classList.remove("busy");
     if (result.ok) {
-      $("boxLabel").textContent = t("resultLabel");
-      $("boxName").textContent = result.data.assignedTo.join(` ${t("and")} `);
-      $("boxNote").textContent = "";
-      revealTimer = setTimeout(resetRevealBox, RESULT_VISIBLE_MS);
+      showResult(result.data.assignedTo);
     } else {
       $("boxLabel").textContent = t("error");
       $("boxName").textContent = "";
@@ -570,7 +578,7 @@ let assignmentsVisible = false;
 
 function toggleAssignmentsView() {
   assignmentsVisible = !assignmentsVisible;
-  $("toggleAssignmentsBtn").textContent = assignmentsVisible ? "Hide assignments" : "Show assignments";
+  $("toggleAssignmentsBtn").textContent = assignmentsVisible ? "Hide draw" : "Show draw";
   loadAssignments();
 }
 
@@ -582,13 +590,11 @@ async function loadAssignments() {
   const toggleBtn = $("toggleAssignmentsBtn");
   const list = $("allAssignments");
 
-  // Admins who play can't see everyone else's result.
-  section.classList.toggle("hidden", data.adminIsParticipating);
-  if (data.adminIsParticipating) return;
-
+  // The full draw is always available to the admin, but hidden until asked for.
+  section.classList.remove("hidden");
   toggleBtn.classList.toggle("hidden", !data.gameStarted);
   if (!data.gameStarted) {
-    list.textContent = "Game has not started yet.";
+    list.textContent = "The draw appears here once the game starts.";
     return;
   }
   if (!assignmentsVisible) {
@@ -596,20 +602,14 @@ async function loadAssignments() {
     return;
   }
 
-  const entries = Object.entries(data.assignments);
-  if (entries.length === 0) {
-    list.textContent = "No spins yet.";
-    return;
-  }
-
   list.textContent = "";
-  entries.forEach(([player, assignedTo]) => {
+  Object.entries(data.assignments).forEach(([player, info]) => {
     const item = document.createElement("div");
     item.className = "assignment-item";
     const who = document.createElement("strong");
     who.textContent = player;
-    const to = Array.isArray(assignedTo) ? assignedTo.join(" and ") : assignedTo;
-    item.append(who, ` → ${to}`);
+    const spunNote = info.spun >= info.receivers.length ? " (spun)" : "";
+    item.append(who, ` → ${info.receivers.join(" and ")}${spunNote}`);
     list.appendChild(item);
   });
 

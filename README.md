@@ -28,8 +28,8 @@ npm test           # draw-logic tests
    - Everyone must log in before the deadline (the admin sees who is missing).
    - When the timer ends, the draw starts automatically if everyone logged in.
    - If anyone is missing, the game is **cancelled**. Press Reset to try again.
-5. Players press **Fırlat** (Spin). A short "make sure it's you" screen shows for about 2.5 seconds, then the result appears and hides itself again after 30 seconds. Pressing Spin again shows it again. The result is never sent by the status endpoint, only by Spin.
-6. If the admin doesn't play, the admin can see everyone's results.
+5. Players press **Fırlat** (Spin). A short "make sure it's you" screen shows for about 2.5 seconds, then the result appears and stays on their screen. The Spin button disappears once a player has used all their spins (once, or twice for the double-spinner), and the server refuses extra spins.
+6. The admin can always see the full draw at the bottom of the admin panel (hidden behind a "Show draw" button), even before anyone spins.
 
 **Reset game** clears the draw and the login tracking. Tick "Also delete all players" to remove everyone except the admin.
 
@@ -37,7 +37,7 @@ Players can't be added, deleted or have their family changed once a game is sche
 
 Players see Azerbaijani (all text is in `public/i18n.js`). The admin panel is English.
 
-Logins last 30 days and are saved with the game state, so phones stay logged in across restarts.
+Logins last 30 days and are saved with the game state, so phones stay logged in across restarts. The exception: **30 minutes after a player's final reveal they are logged out** (on every device) and must log in again to see their result. Logging in again gives another 30 minutes. The admin is never logged out this way. (`RESULT_SESSION_MINUTES` changes the 30, mainly for testing.)
 
 ## Hosting
 
