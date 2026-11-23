@@ -8,7 +8,11 @@ const { buildAssignments, validateRoster } = require("./assign");
 const app = express();
 const PORT = process.env.PORT || 3000;
 const SETUP_CODE = process.env.SETUP_CODE || "";
-const DATA_FILE = process.env.DATA_FILE || path.join(__dirname, "data.json");
+// Saved state lives in /data when that folder exists (mount a volume there on the host),
+// otherwise next to the code. DATA_FILE overrides both.
+const DATA_FILE =
+  process.env.DATA_FILE ||
+  (fs.existsSync("/data") ? "/data/data.json" : path.join(__dirname, "data.json"));
 const IS_PROD = process.env.NODE_ENV === "production";
 
 const MAX_NAME_LENGTH = 40;

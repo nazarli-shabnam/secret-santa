@@ -48,9 +48,9 @@ Environment variables:
 | `PORT` | Port to listen on (default 3000) |
 | `NODE_ENV=production` | Marks the session cookie `secure` (use behind HTTPS) |
 | `SETUP_CODE` | If set, creating the first admin requires this code |
-| `DATA_FILE` | Where state is saved (default `./data.json`) |
+| `DATA_FILE` | Where state is saved. Default: `/data/data.json` if a `/data` folder exists, else `./data.json` |
 
-State is saved to `DATA_FILE` after every change and reloaded on boot, so a restart keeps the game. On hosts with an ephemeral disk (e.g. Render free tier) the file is lost when the instance is rebuilt; attach a persistent disk or accept that a redeploy resets the game. Logged-in sessions are not saved, so players log in again after a restart.
+State is saved to `DATA_FILE` after every change and reloaded on boot, so a restart keeps the game. On hosts with an ephemeral disk (e.g. Render free tier) the file is lost when the instance is rebuilt; attach a persistent disk or accept that a redeploy resets the game. Logins are saved too, so players stay logged in across restarts.
 
 ### Render
 Start command `npm start`; set `NODE_ENV=production` and `SETUP_CODE`.
