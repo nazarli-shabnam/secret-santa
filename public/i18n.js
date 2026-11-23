@@ -6,6 +6,8 @@ const TEXT = {
   password: "Parol",
   passwordPlaceholder: "Sizə göndərilən parol",
   login: "Daxil ol",
+  showPassword: "Parolu göstər",
+  hidePassword: "Parolu gizlət",
   logout: "Çıxış",
   fillIn: "Adınızı seçin və parolu yazın",
   wrongCreds: "Ad və ya parol yanlışdır",

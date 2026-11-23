@@ -65,6 +65,23 @@ input[type="text"], input[type="password"], input[type="datetime-local"], select
   font-weight: 700;
   padding: 0 14px;
 }
+.pw-wrap { position: relative; }
+.pw-wrap input { padding-right: 56px; }
+.pw-toggle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 14px;
+}
+.pw-toggle:hover { color: var(--ink); }
 input[type="checkbox"] { width: 22px; height: 22px; accent-color: var(--green); flex: none; }
 :focus-visible { outline: 3px solid #f0b429; outline-offset: 2px; }
 
