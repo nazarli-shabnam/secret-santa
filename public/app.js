@@ -1,152 +1,127 @@
-const API_BASE = "/api";
+const API = "/api";
+const SPIN_MS = 2500; // how long the "make sure it's you" screen shows before the result
+const RESULT_VISIBLE_MS = 30000; // the result hides itself again after this long
 
-let currentUser = null;
 let currentRole = null;
+let gameTimer = null;
+let adminTimer = null;
+let countdownTimer = null;
+let deadline = null;
+let spinning = false;
+let revealTimer = null;
+
+const $ = (id) => document.getElementById(id);
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function api(path, { method = "GET", body } = {}) {
+  const response = await fetch(API + path, {
+    method,
+    credentials: "include",
+    headers: body ? { "Content-Type": "application/json" } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  let data = {};
+  try {
+    data = await response.json();
+  } catch (e) {
+    // non-JSON error body
+  }
+  return { ok: response.ok, status: response.status, data };
+}
 
 document.addEventListener("DOMContentLoaded", () => {
+  applyTranslations();
+  setupEventListeners();
   loadPlayersForLogin();
   checkAuth();
-  setupEventListeners();
 });
 
-async function checkAuth() {
-  try {
-    const response = await fetch(`${API_BASE}/game/status`, {
-      credentials: "include",
-    });
-
-    if (response.ok) {
-      const data = await response.json();
-      if (data.gameStarted !== undefined) {
-        await loadUserData();
-      } else {
-        showScreen("loginScreen");
-      }
-    } else {
-      showScreen("loginScreen");
-    }
-  } catch (error) {
-    console.error("Auth check failed:", error);
-    showScreen("loginScreen");
-  }
-}
-
-async function loadUserData() {
-  try {
-    const response = await fetch(`${API_BASE}/game/status`, {
-      credentials: "include",
-    });
-
-    if (response.ok) {
-      const data = await response.json();
-
-      const adminCheck = await fetch(`${API_BASE}/admin/players`, {
-        credentials: "include",
-      });
-
-      if (adminCheck.ok) {
-        currentRole = "admin";
-        showAdminScreen();
-      } else {
-        currentRole = "user";
-        showGameScreen();
-      }
-    }
-  } catch (error) {
-    console.error("Load user data failed:", error);
-    showScreen("loginScreen");
-  }
-}
-
-function setupEventListeners() {
-  document
-    .getElementById("createAdminBtn")
-    .addEventListener("click", handleCreateAdmin);
-  document
-    .getElementById("adminPasswordInput")
-    .addEventListener("keypress", (e) => {
-      if (e.key === "Enter") handleCreateAdmin();
-    });
-
-  document.getElementById("loginBtn").addEventListener("click", handleLogin);
-  document.getElementById("passwordInput").addEventListener("keypress", (e) => {
-    if (e.key === "Enter") handleLogin();
+function applyTranslations() {
+  document.querySelectorAll("[data-t]").forEach((el) => {
+    el.textContent = t(el.dataset.t);
   });
-
-  document.getElementById("spinBtn").addEventListener("click", handleSpin);
-  document
-    .getElementById("goToAdminBtn")
-    .addEventListener("click", () => showAdminScreen());
-  document.getElementById("logoutBtn").addEventListener("click", handleLogout);
-
-  document
-    .getElementById("addPlayerBtn")
-    .addEventListener("click", handleAddPlayer);
-  document
-    .getElementById("startGameBtn")
-    .addEventListener("click", handleStartGame);
-  document
-    .getElementById("resetGameBtn")
-    .addEventListener("click", handleResetGame);
-  document
-    .getElementById("resetPasswordBtn")
-    .addEventListener("click", handleResetPassword);
-  document
-    .getElementById("goToGameBtn")
-    .addEventListener("click", () => showGameScreen());
-  document
-    .getElementById("adminLogoutBtn")
-    .addEventListener("click", handleLogout);
-  document
-    .getElementById("adminParticipates")
-    .addEventListener("change", updateDoubleSpinnerSection);
-  document
-    .getElementById("toggleAssignmentsBtn")
-    .addEventListener("click", toggleAssignmentsView);
+  document.querySelectorAll("[data-t-placeholder]").forEach((el) => {
+    el.placeholder = t(el.dataset.tPlaceholder);
+  });
 }
 
 function showScreen(screenId) {
-  document.querySelectorAll(".screen").forEach((screen) => {
-    screen.classList.remove("active");
+  document.querySelectorAll(".screen").forEach((s) => s.classList.remove("active"));
+  $(screenId).classList.add("active");
+}
+
+function stopTimers() {
+  clearInterval(gameTimer);
+  clearInterval(adminTimer);
+  clearInterval(countdownTimer);
+  clearTimeout(revealTimer);
+}
+
+function setupEventListeners() {
+  $("createAdminBtn").addEventListener("click", handleCreateAdmin);
+  $("adminPasswordInput").addEventListener("keypress", (e) => {
+    if (e.key === "Enter") handleCreateAdmin();
   });
-  document.getElementById(screenId).classList.add("active");
+
+  $("loginBtn").addEventListener("click", handleLogin);
+  $("passwordInput").addEventListener("keypress", (e) => {
+    if (e.key === "Enter") handleLogin();
+  });
+
+  $("spinBtn").addEventListener("click", handleSpin);
+  $("goToAdminBtn").addEventListener("click", () => showAdminScreen());
+  $("logoutBtn").addEventListener("click", handleLogout);
+
+  $("addPlayerBtn").addEventListener("click", handleAddPlayer);
+  $("startGameBtn").addEventListener("click", handleStartGame);
+  $("resetGameBtn").addEventListener("click", handleResetGame);
+  $("resetPasswordBtn").addEventListener("click", handleResetPassword);
+  $("goToGameBtn").addEventListener("click", () => showGameScreen());
+  $("adminLogoutBtn").addEventListener("click", handleLogout);
+  $("adminParticipates").addEventListener("change", loadAdminData);
+  $("deadlineInput").addEventListener("input", renderStartButton);
+  $("toggleAssignmentsBtn").addEventListener("click", toggleAssignmentsView);
+}
+
+// ---------- auth ----------
+
+async function checkAuth() {
+  const { ok, data } = await api("/game/status").catch(() => ({ ok: false }));
+  if (!ok) return showScreen("loginScreen");
+  currentRole = data.role;
+  if (currentRole === "admin") showAdminScreen();
+  else showGameScreen();
 }
 
 async function loadPlayersForLogin() {
   try {
-    const response = await fetch(`${API_BASE}/players`);
+    const { ok, data } = await api("/players");
+    if (!ok) return;
 
-    if (response.ok) {
-      const data = await response.json();
-
-      if (data.players.length === 0) {
-        document.getElementById("bootstrapForm").classList.remove("hidden");
-        document.getElementById("regularLoginForm").classList.add("hidden");
-        return;
-      }
-
-      document.getElementById("bootstrapForm").classList.add("hidden");
-      document.getElementById("regularLoginForm").classList.remove("hidden");
-
-      const select = document.getElementById("playerSelect");
-      select.innerHTML = '<option value="">-- Select --</option>';
-      data.players.forEach((player) => {
-        const option = document.createElement("option");
-        option.value = player.name;
-        option.textContent = player.name;
-        select.appendChild(option);
-      });
+    if (data.players.length === 0) {
+      $("setupCodeGroup").classList.toggle("hidden", !data.setupCodeRequired);
+      $("bootstrapForm").classList.remove("hidden");
+      $("regularLoginForm").classList.add("hidden");
+      return;
     }
+
+    $("bootstrapForm").classList.add("hidden");
+    $("regularLoginForm").classList.remove("hidden");
+
+    const select = $("playerSelect");
+    select.innerHTML = "";
+    select.appendChild(new Option(t("selectName"), ""));
+    data.players.forEach((p) => select.appendChild(new Option(p.name, p.name)));
   } catch (error) {
     console.error("Failed to load players:", error);
   }
 }
 
 async function handleCreateAdmin() {
-  const name = document.getElementById("adminNameInput").value.trim();
-  const password = document.getElementById("adminPasswordInput").value;
-  const errorDiv = document.getElementById("bootstrapError");
-
+  const name = $("adminNameInput").value.trim();
+  const password = $("adminPasswordInput").value;
+  const setupCode = $("setupCodeInput").value;
+  const errorDiv = $("bootstrapError");
   errorDiv.textContent = "";
 
   if (!name || !password) {
@@ -155,586 +130,493 @@ async function handleCreateAdmin() {
   }
 
   try {
-    const response = await fetch(`${API_BASE}/bootstrap`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, password }),
-    });
-
-    let data;
-    try {
-      data = await response.json();
-    } catch (e) {
-      errorDiv.textContent = `Server error: ${response.status} ${response.statusText}`;
-      console.error("Failed to parse response:", e);
+    const created = await api("/bootstrap", { method: "POST", body: { name, password, setupCode } });
+    if (!created.ok) {
+      errorDiv.textContent = created.data.error || `Failed to create admin (${created.status})`;
       return;
     }
-
-    if (response.ok) {
-      const loginResponse = await fetch(`${API_BASE}/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ name, password }),
-      });
-
-      let loginData;
-      try {
-        loginData = await loginResponse.json();
-      } catch (e) {
-        errorDiv.textContent =
-          "Admin created but login failed. Please try logging in manually.";
-        console.error("Failed to parse login response:", e);
-        return;
-      }
-
-      if (loginResponse.ok && loginData.success) {
-        currentUser = name;
-        currentRole = "admin";
-        showAdminScreen();
-      } else {
-        errorDiv.textContent =
-          loginData.error ||
-          "Admin created but login failed. Please try logging in.";
-      }
+    const login = await api("/login", { method: "POST", body: { name, password } });
+    if (login.ok && login.data.success) {
+      currentRole = "admin";
+      showAdminScreen();
     } else {
-      errorDiv.textContent =
-        data.error || `Failed to create admin (${response.status})`;
-      console.error("Bootstrap failed:", data);
+      errorDiv.textContent = "Admin created but login failed. Please reload and log in.";
     }
   } catch (error) {
     errorDiv.textContent = `Failed to create admin: ${error.message}`;
-    console.error("Bootstrap error:", error);
   }
 }
 
 async function handleLogin() {
-  const name = document.getElementById("playerSelect").value;
-  const password = document.getElementById("passwordInput").value;
-  const errorDiv = document.getElementById("loginError");
-
+  const name = $("playerSelect").value;
+  const password = $("passwordInput").value;
+  const errorDiv = $("loginError");
   errorDiv.textContent = "";
 
   if (!name || !password) {
-    errorDiv.textContent = "Please select a name and enter password";
+    errorDiv.textContent = t("fillIn");
     return;
   }
 
   try {
-    const response = await fetch(`${API_BASE}/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ name, password }),
-    });
-
-    const data = await response.json();
-
-    if (response.ok && data.success) {
-      currentUser = name;
+    const { ok, status, data } = await api("/login", { method: "POST", body: { name, password } });
+    if (ok && data.success) {
+      $("passwordInput").value = "";
       currentRole = data.role;
-
-      if (data.role === "admin") {
-        showAdminScreen();
-      } else {
-        showGameScreen();
-      }
+      if (currentRole === "admin") showAdminScreen();
+      else showGameScreen();
+    } else if (status === 401) {
+      errorDiv.textContent = t("wrongCreds");
+    } else if (status === 429) {
+      errorDiv.textContent = t("tooMany");
     } else {
-      errorDiv.textContent = data.error || "Login failed";
+      errorDiv.textContent = t("loginFailed");
     }
   } catch (error) {
-    errorDiv.textContent = "Login failed. Please try again.";
+    errorDiv.textContent = t("loginFailed");
   }
 }
+
+async function handleLogout() {
+  try {
+    await api("/logout", { method: "POST" });
+  } catch (error) {
+    console.error("Logout failed:", error);
+  }
+  stopTimers();
+  currentRole = null;
+  resetRevealBox();
+  $("loginError").textContent = "";
+  showScreen("loginScreen");
+  await loadPlayersForLogin();
+}
+
+// ---------- player game screen ----------
 
 async function showGameScreen() {
+  stopTimers();
   showScreen("gameScreen");
-
-  const adminNavSection = document.getElementById("adminNavSection");
-  if (currentRole === "admin") {
-    adminNavSection.classList.remove("hidden");
-  } else {
-    adminNavSection.classList.add("hidden");
-  }
-
-  await updateGameStatus();
-
-  if (window.gameStatusInterval) {
-    clearInterval(window.gameStatusInterval);
-  }
-  window.gameStatusInterval = setInterval(updateGameStatus, 2000);
+  $("adminNavSection").classList.toggle("hidden", currentRole !== "admin");
+  await refreshGame();
+  gameTimer = setInterval(refreshGame, 4000);
 }
 
-async function updateGameStatus() {
+async function refreshGame() {
   try {
-    const response = await fetch(`${API_BASE}/game/status`, {
-      credentials: "include",
-    });
-
-    if (!response.ok) {
-      if (response.status === 401) {
-        showScreen("loginScreen");
-        return;
-      }
-      throw new Error("Failed to get status");
+    const { ok, status, data } = await api("/game/status");
+    if (status === 401) {
+      stopTimers();
+      showScreen("loginScreen");
+      return;
     }
-
-    const data = await response.json();
-
-    const statusMessage = document.getElementById("statusMessage");
-    const spinBtn = document.getElementById("spinBtn");
-    const resultSection = document.getElementById("resultSection");
-    const assignmentName = document.getElementById("assignmentName");
-
-    statusMessage.textContent = data.message || "";
-    spinBtn.disabled = !data.canSpin;
-
-    if (data.assignment) {
-      resultSection.classList.remove("hidden");
-      assignmentName.textContent = data.assignment;
-    } else {
-      resultSection.classList.add("hidden");
-    }
+    if (ok) renderGame(data);
   } catch (error) {
-    console.error("Update game status failed:", error);
+    console.error("Game status failed:", error);
   }
+}
+
+function renderGame(d) {
+  $("hello").textContent = t("hello", { name: d.name });
+
+  const waiting = d.state === "waiting";
+  const ready = d.state === "ready";
+  $("waitPanel").classList.toggle("hidden", !waiting);
+  $("spinPanel").classList.toggle("hidden", !ready);
+
+  let message = "";
+  if (d.state === "idle") message = t("idle");
+  else if (d.state === "cancelled") message = t("cancelled");
+  else if (d.state === "notParticipating") message = t("notParticipating");
+  else if (ready && d.slots === 2) {
+    if (d.spun === 0) message = t("spinTwice");
+    else if (d.spun === 1) message = t("spinOnceMore");
+  }
+  $("gameMsg").textContent = message;
+
+  if (waiting) renderWaiting(d);
+  else {
+    clearInterval(countdownTimer);
+    countdownTimer = null;
+  }
+}
+
+function renderWaiting(d) {
+  const inCount = d.people.filter((p) => p.in).length;
+  $("loggedInCount").textContent = t("loggedInCount", { in: inCount, total: d.people.length });
+  $("meterFill").style.width = `${(inCount / d.people.length) * 100}%`;
+
+  const chips = $("people");
+  chips.innerHTML = "";
+  d.people.forEach((p) => {
+    const chip = document.createElement("span");
+    chip.className = p.in ? "chip in" : "chip";
+    chip.textContent = p.name;
+    chips.appendChild(chip);
+  });
+
+  deadline = d.deadline;
+  tickCountdown();
+  if (!countdownTimer) countdownTimer = setInterval(tickCountdown, 1000);
+}
+
+function tickCountdown() {
+  const pad = (n) => String(n).padStart(2, "0");
+  const s = Math.max(0, Math.floor((deadline - Date.now()) / 1000));
+  $("cd").textContent = Math.floor(s / 86400);
+  $("ch").textContent = pad(Math.floor((s % 86400) / 3600));
+  $("cm").textContent = pad(Math.floor((s % 3600) / 60));
+  $("cs").textContent = pad(s % 60);
+}
+
+function resetRevealBox() {
+  clearTimeout(revealTimer);
+  $("revealBox").classList.add("hidden");
+  $("revealBox").classList.remove("busy");
+  $("boxLabel").textContent = "";
+  $("boxName").textContent = "";
+  $("boxNote").textContent = "";
 }
 
 async function handleSpin() {
-  const spinBtn = document.getElementById("spinBtn");
-  spinBtn.disabled = true;
-  spinBtn.textContent = "Spinning...";
+  if (spinning) return;
+  spinning = true;
+  clearTimeout(revealTimer);
+
+  const btn = $("spinBtn");
+  btn.disabled = true;
+
+  const box = $("revealBox");
+  box.classList.remove("hidden");
+  box.classList.add("busy");
+  $("boxLabel").textContent = t("spinning");
+  $("boxName").textContent = "";
+  $("boxNote").textContent = t("checkPhone");
 
   try {
-    const response = await fetch(`${API_BASE}/spin`, {
-      method: "POST",
-      credentials: "include",
-    });
-
-    const data = await response.json();
-
-    if (response.ok) {
-      const resultSection = document.getElementById("resultSection");
-      const assignmentName = document.getElementById("assignmentName");
-      resultSection.classList.remove("hidden");
-      assignmentName.textContent = data.assignedTo;
-
-      await updateGameStatus();
+    const [result] = await Promise.all([api("/spin", { method: "POST" }), sleep(SPIN_MS)]);
+    box.classList.remove("busy");
+    if (result.ok) {
+      $("boxLabel").textContent = t("resultLabel");
+      $("boxName").textContent = result.data.assignedTo.join(` ${t("and")} `);
+      $("boxNote").textContent = "";
+      revealTimer = setTimeout(resetRevealBox, RESULT_VISIBLE_MS);
     } else {
-      alert(data.error || "Spin failed");
-      await updateGameStatus();
+      $("boxLabel").textContent = t("error");
+      $("boxName").textContent = "";
+      $("boxNote").textContent = "";
     }
   } catch (error) {
-    alert("Spin failed. Please try again.");
-    await updateGameStatus();
+    box.classList.remove("busy");
+    $("boxLabel").textContent = t("error");
+    $("boxNote").textContent = "";
   } finally {
-    spinBtn.textContent = "Spin";
+    spinning = false;
+    btn.disabled = false;
+    refreshGame();
   }
 }
+
+// ---------- admin panel (English) ----------
 
 async function showAdminScreen() {
+  stopTimers();
   showScreen("adminScreen");
   await loadAdminData();
-
-  if (window.adminUpdateInterval) {
-    clearInterval(window.adminUpdateInterval);
-  }
-  window.adminUpdateInterval = setInterval(loadAdminData, 3000);
+  adminTimer = setInterval(loadAdminData, 3000);
 }
+
+let lastAdminData = null;
 
 async function loadAdminData() {
-  await Promise.all([loadPlayers(), loadGameControl(), loadAssignments()]);
-}
-
-async function loadPlayers() {
   try {
-    const response = await fetch(`${API_BASE}/admin/players`, {
-      credentials: "include",
-    });
-
-    if (!response.ok) throw new Error("Failed to load players");
-
-    const data = await response.json();
-    const playerList = document.getElementById("playerList");
-    playerList.innerHTML = "";
-
-    data.players.forEach((player) => {
-      const item = document.createElement("div");
-      item.className = "player-item";
-      item.innerHTML = `
-                <div>
-                    <span class="player-name">${player.name}</span>
-                    ${
-                      player.role === "admin"
-                        ? '<span class="player-role"> (Admin)</span>'
-                        : ""
-                    }
-                </div>
-                <button class="delete-btn" data-name="${player.name}" 
-                    ${data.gameStarted ? "disabled" : ""}>
-                    Delete
-                </button>
-            `;
-      playerList.appendChild(item);
-    });
-
-    document.querySelectorAll(".delete-btn").forEach((btn) => {
-      btn.addEventListener("click", async (e) => {
-        const name = e.target.dataset.name;
-        if (confirm(`Delete player ${name}?`)) {
-          await handleDeletePlayer(name);
-        }
-      });
-    });
-
-    updateDoubleSpinnerSelect(data.players);
-    updateResetPasswordSelect(data.players);
-  } catch (error) {
-    console.error("Load players failed:", error);
-  }
-}
-
-function updateDoubleSpinnerSelect(players) {
-  const select = document.getElementById("doubleSpinnerSelect");
-  select.innerHTML = '<option value="">-- Select --</option>';
-  players.forEach((player) => {
-    const option = document.createElement("option");
-    option.value = player.name;
-    option.textContent = player.name;
-    select.appendChild(option);
-  });
-}
-
-function updateResetPasswordSelect(players) {
-  const select = document.getElementById("resetPlayerSelect");
-  select.innerHTML = '<option value="">-- Select player --</option>';
-  players.forEach((player) => {
-    const option = document.createElement("option");
-    option.value = player.name;
-    option.textContent = player.name;
-    select.appendChild(option);
-  });
-}
-
-function updateDoubleSpinnerSection() {
-  loadGameControl();
-}
-
-async function loadGameControl() {
-  try {
-    const response = await fetch(`${API_BASE}/admin/players`, {
-      credentials: "include",
-    });
-
-    if (!response.ok) throw new Error("Failed to load game control");
-
-    const data = await response.json();
-    const playerCount = data.players.length;
-    const adminParticipates =
-      document.getElementById("adminParticipates").checked;
-
-    const effectiveCount = adminParticipates ? playerCount : playerCount - 1;
-    const isOdd = effectiveCount % 2 === 1;
-
-    const doubleSpinnerSection = document.getElementById(
-      "doubleSpinnerSection"
-    );
-    const startGameBtn = document.getElementById("startGameBtn");
-    const playGameSection = document.getElementById("playGameSection");
-
-    if (data.gameStarted) {
-      startGameBtn.disabled = true;
-      startGameBtn.textContent = "Game Started";
-      doubleSpinnerSection.classList.add("hidden");
-      if (playGameSection) {
-        playGameSection.style.display = "block";
-      }
-    } else {
-      startGameBtn.disabled = false;
-      startGameBtn.textContent = "Start Game";
-      if (playGameSection) {
-        playGameSection.style.display = "none";
-      }
-
-      if (isOdd) {
-        doubleSpinnerSection.classList.remove("hidden");
-      } else {
-        doubleSpinnerSection.classList.add("hidden");
-      }
+    const { ok, status, data } = await api("/admin/players");
+    if (status === 401 || status === 403) {
+      stopTimers();
+      showScreen("loginScreen");
+      return;
     }
+    if (!ok) return;
+    lastAdminData = data;
+    renderBanner(data);
+    renderPlayers(data);
+    renderGameControl(data);
+    await loadAssignments();
   } catch (error) {
-    console.error("Load game control failed:", error);
+    console.error("Load admin data failed:", error);
   }
+}
+
+function formatDeadline(ms) {
+  return new Date(ms).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+}
+
+function renderBanner(d) {
+  const banner = $("adminBanner");
+  banner.className = "banner";
+  const total = d.players.length;
+
+  if (d.phase === "waiting") {
+    banner.classList.add("waiting");
+    const missing = d.waitingFor.length ? ` Still to log in: ${d.waitingFor.join(", ")}.` : " Everyone has logged in.";
+    banner.textContent = `Waiting for logins until ${formatDeadline(d.deadline)}. ${d.participantCount - d.waitingFor.length} of ${d.participantCount} logged in.${missing} The draw starts automatically.`;
+  } else if (d.phase === "cancelled") {
+    banner.classList.add("cancelled");
+    const reason = d.cancelReason || {};
+    const why = reason.missing
+      ? `These players did not log in: ${reason.missing.join(", ")}.`
+      : reason.error || "";
+    banner.textContent = `Game cancelled. ${why} Reset the game to try again.`;
+  } else if (d.phase === "started") {
+    banner.classList.add("started");
+    banner.textContent = "Game is running.";
+  } else {
+    banner.textContent = total ? "No game running." : "Add players to begin.";
+  }
+
+  $("playGameSection").classList.toggle("hidden", !d.adminPlays);
+}
+
+function fillSelect(select, firstLabel, extra, players) {
+  const previous = select.value;
+  select.innerHTML = "";
+  select.appendChild(new Option(firstLabel, ""));
+  extra.forEach(([label, value]) => select.appendChild(new Option(label, value)));
+  players.forEach((p) => select.appendChild(new Option(p.name, p.name)));
+  if ([...select.options].some((o) => o.value === previous)) select.value = previous;
+}
+
+function renderPlayers(d) {
+  const list = $("playerList");
+  list.innerHTML = "";
+  const locked = d.phase !== "idle";
+
+  d.players.forEach((player) => {
+    const item = document.createElement("div");
+    item.className = "player-item";
+
+    const label = document.createElement("div");
+    const nameEl = document.createElement("span");
+    nameEl.className = "player-name";
+    nameEl.textContent = player.name;
+    label.appendChild(nameEl);
+
+    const meta = [];
+    if (player.role === "admin") meta.push("Admin");
+    if (player.family) meta.push(`Family: ${player.family}`);
+    if (d.phase === "waiting") meta.push(player.loggedIn ? "logged in" : "not logged in yet");
+    if (meta.length) {
+      const metaEl = document.createElement("span");
+      metaEl.className = "player-role";
+      metaEl.textContent = ` (${meta.join(", ")})`;
+      label.appendChild(metaEl);
+    }
+
+    const editBtn = document.createElement("button");
+    editBtn.className = "btn btn-secondary";
+    editBtn.textContent = "Family";
+    editBtn.disabled = locked;
+    editBtn.addEventListener("click", async () => {
+      const family = prompt(`Family for ${player.name} (leave blank for none):`, player.family || "");
+      if (family !== null) await handleSetFamily(player.name, family);
+    });
+
+    const deleteBtn = document.createElement("button");
+    deleteBtn.className = "btn btn-danger";
+    deleteBtn.textContent = "Delete";
+    deleteBtn.disabled = locked || player.role === "admin";
+    deleteBtn.addEventListener("click", async () => {
+      if (confirm(`Delete player ${player.name}?`)) await handleDeletePlayer(player.name);
+    });
+
+    const actions = document.createElement("div");
+    actions.className = "player-actions";
+    actions.append(editBtn, deleteBtn);
+
+    item.append(label, actions);
+    list.appendChild(item);
+  });
+
+  $("addPlayerBtn").disabled = locked;
+  fillSelect($("resetPlayerSelect"), "-- Select player --", [], d.players);
+}
+
+function participantCount(d) {
+  return d.players.length - ($("adminParticipates").checked ? 0 : 1);
+}
+
+function renderGameControl(d) {
+  const idle = d.phase === "idle";
+  const count = participantCount(d);
+  const isOdd = count % 2 === 1;
+
+  $("doubleSpinnerSection").classList.toggle("hidden", !(idle && isOdd));
+  fillSelect($("doubleSpinnerSelect"), "-- Select --", [["Pick randomly", "random"]], d.players);
+
+  $("adminParticipates").disabled = !idle;
+  $("enforceFamilies").disabled = !idle;
+  $("deadlineInput").disabled = !idle;
+  $("drawSummary").textContent = idle
+    ? count < 2
+      ? "Add more players to start."
+      : `${count} participants${isOdd ? " (odd: pick a double-spinner)" : ""}.`
+    : "";
+  renderStartButton();
+}
+
+function renderStartButton() {
+  const d = lastAdminData;
+  if (!d) return;
+  const btn = $("startGameBtn");
+  const scheduled = Boolean($("deadlineInput").value);
+  btn.textContent = d.phase === "idle" ? (scheduled ? "Start login countdown" : "Start game now") : "Game in progress";
+  btn.disabled = d.phase !== "idle" || participantCount(d) < 2;
 }
 
 async function handleAddPlayer() {
-  const name = document.getElementById("newPlayerName").value.trim();
-  const password = document.getElementById("newPlayerPassword").value;
+  const name = $("newPlayerName").value.trim();
+  const password = $("newPlayerPassword").value;
+  const family = $("newPlayerFamily").value.trim();
 
   if (!name || !password) {
     alert("Please enter name and password");
     return;
   }
 
-  try {
-    const response = await fetch(`${API_BASE}/admin/players`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ name, password }),
-    });
-
-    const data = await response.json();
-
-    if (response.ok) {
-      document.getElementById("newPlayerName").value = "";
-      document.getElementById("newPlayerPassword").value = "";
-      await loadPlayers();
-      await loadGameControl();
-    } else {
-      alert(data.error || "Failed to add player");
-    }
-  } catch (error) {
-    alert("Failed to add player. Please try again.");
+  const { ok, data } = await api("/admin/players", { method: "POST", body: { name, password, family } });
+  if (!ok) {
+    alert(data.error || "Failed to add player");
+    return;
   }
+  $("newPlayerName").value = "";
+  $("newPlayerFamily").value = "";
+  $("newPlayerPassword").value = "";
+  await loadAdminData();
+}
+
+async function handleSetFamily(name, family) {
+  const { ok, data } = await api(`/admin/players/${encodeURIComponent(name)}`, {
+    method: "PATCH",
+    body: { family },
+  });
+  if (!ok) alert(data.error || "Failed to update family");
+  await loadAdminData();
 }
 
 async function handleDeletePlayer(name) {
-  try {
-    const response = await fetch(
-      `${API_BASE}/admin/players/${encodeURIComponent(name)}`,
-      {
-        method: "DELETE",
-        credentials: "include",
-      }
-    );
-
-    const data = await response.json();
-
-    if (response.ok) {
-      await loadPlayers();
-      await loadGameControl();
-    } else {
-      alert(data.error || "Failed to delete player");
-    }
-  } catch (error) {
-    alert("Failed to delete player. Please try again.");
-  }
+  const { ok, data } = await api(`/admin/players/${encodeURIComponent(name)}`, { method: "DELETE" });
+  if (!ok) alert(data.error || "Failed to delete player");
+  await loadAdminData();
 }
 
 async function handleStartGame() {
-  const adminParticipates =
-    document.getElementById("adminParticipates").checked;
-  const doubleSpinnerName = document.getElementById(
-    "doubleSpinnerSelect"
-  ).value;
+  const deadlineValue = $("deadlineInput").value;
+  const body = {
+    adminParticipates: $("adminParticipates").checked,
+    enforceFamilies: $("enforceFamilies").checked,
+    doubleSpinnerName: $("doubleSpinnerSelect").value || null,
+    deadline: deadlineValue ? new Date(deadlineValue).getTime() : null,
+  };
 
-  try {
-    const response = await fetch(`${API_BASE}/admin/start`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({
-        adminParticipates,
-        doubleSpinnerName: doubleSpinnerName || null,
-      }),
-    });
-
-    const data = await response.json();
-
-    if (response.ok) {
-      await loadGameControl();
-      await loadAssignments();
-    } else {
-      alert(data.error || "Failed to start game");
-    }
-  } catch (error) {
-    alert("Failed to start game. Please try again.");
+  const { ok, data } = await api("/admin/start", { method: "POST", body });
+  if (!ok) {
+    alert(data.error || "Failed to start game");
+    return;
   }
+  $("deadlineInput").value = "";
+  await loadAdminData();
 }
 
 async function handleResetGame() {
-  if (
-    !confirm(
-      "Are you sure you want to reset the game? This will clear all assignments."
-    )
-  ) {
+  const deletePlayers = $("deletePlayersOnReset").checked;
+  const warning = deletePlayers
+    ? "Reset the game AND delete all players (except you)?"
+    : "Reset the game? This clears all assignments.";
+  if (!confirm(warning)) return;
+
+  const { ok, data } = await api("/admin/reset", { method: "POST", body: { deletePlayers } });
+  if (!ok) {
+    alert(data.error || "Failed to reset game");
     return;
   }
-
-  try {
-    const response = await fetch(`${API_BASE}/admin/reset`, {
-      method: "POST",
-      credentials: "include",
-    });
-
-    const data = await response.json();
-
-    if (response.ok) {
-      await loadGameControl();
-      await loadAssignments();
-    } else {
-      alert(data.error || "Failed to reset game");
-    }
-  } catch (error) {
-    alert("Failed to reset game. Please try again.");
-  }
+  $("deletePlayersOnReset").checked = false;
+  await loadAdminData();
 }
 
 async function handleResetPassword() {
-  const name = document.getElementById("resetPlayerSelect").value;
-  const newPassword = document.getElementById("newPassword").value;
+  const name = $("resetPlayerSelect").value;
+  const newPassword = $("newPassword").value;
 
   if (!name || !newPassword) {
     alert("Please select a player and enter new password");
     return;
   }
 
-  try {
-    const response = await fetch(`${API_BASE}/admin/reset-password`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ name, newPassword }),
-    });
-
-    const data = await response.json();
-
-    if (response.ok) {
-      document.getElementById("resetPlayerSelect").value = "";
-      document.getElementById("newPassword").value = "";
-      alert("Password reset successfully. User will need to log in again.");
-    } else {
-      alert(data.error || "Failed to reset password");
-    }
-  } catch (error) {
-    alert("Failed to reset password. Please try again.");
+  const { ok, data } = await api("/admin/reset-password", {
+    method: "POST",
+    body: { name, newPassword },
+  });
+  if (!ok) {
+    alert(data.error || "Failed to reset password");
+    return;
   }
+  $("resetPlayerSelect").value = "";
+  $("newPassword").value = "";
+  alert("Password reset. The player will need to log in again.");
 }
+
+// ---------- admin: assignments ----------
 
 let assignmentsVisible = false;
 
 function toggleAssignmentsView() {
   assignmentsVisible = !assignmentsVisible;
-  const assignmentsDiv = document.getElementById("allAssignments");
-  const toggleBtn = document.getElementById("toggleAssignmentsBtn");
-
-  if (assignmentsVisible) {
-    assignmentsDiv.style.display = "block";
-    toggleBtn.textContent = "Hide Assignments";
-    loadAssignmentsData();
-  } else {
-    assignmentsDiv.style.display = "none";
-    toggleBtn.textContent = "Show Assignments";
-  }
+  $("toggleAssignmentsBtn").textContent = assignmentsVisible ? "Hide assignments" : "Show assignments";
+  loadAssignments();
 }
 
 async function loadAssignments() {
-  try {
-    const response = await fetch(`${API_BASE}/admin/assignments`, {
-      credentials: "include",
-    });
+  const { ok, data } = await api("/admin/assignments");
+  if (!ok) return;
 
-    if (!response.ok) throw new Error("Failed to load assignments");
+  const section = $("assignmentsSection");
+  const toggleBtn = $("toggleAssignmentsBtn");
+  const list = $("allAssignments");
 
-    const data = await response.json();
-    const assignmentsSection = document.getElementById("assignmentsSection");
-    const toggleBtn = document.getElementById("toggleAssignmentsBtn");
-    const assignmentsDiv = document.getElementById("allAssignments");
+  // Admins who play can't see everyone else's result.
+  section.classList.toggle("hidden", data.adminIsParticipating);
+  if (data.adminIsParticipating) return;
 
-    if (data.adminIsParticipating) {
-      assignmentsSection.style.display = "none";
-      return;
-    }
-
-    assignmentsSection.style.display = "block";
-
-    if (!data.gameStarted) {
-      toggleBtn.style.display = "none";
-      assignmentsDiv.innerHTML = "<p>Game has not started yet.</p>";
-      assignmentsDiv.style.display = "block";
-      return;
-    }
-
-    toggleBtn.style.display = "block";
-
-    if (assignmentsVisible) {
-      await loadAssignmentsData(data);
-    } else {
-      assignmentsDiv.style.display = "none";
-      assignmentsDiv.innerHTML = "";
-      toggleBtn.textContent = "Show Assignments";
-    }
-  } catch (error) {
-    console.error("Load assignments failed:", error);
+  toggleBtn.classList.toggle("hidden", !data.gameStarted);
+  if (!data.gameStarted) {
+    list.textContent = "Game has not started yet.";
+    return;
   }
-}
-
-async function loadAssignmentsData(data = null) {
-  try {
-    if (!data) {
-      const response = await fetch(`${API_BASE}/admin/assignments`, {
-        credentials: "include",
-      });
-      if (!response.ok) throw new Error("Failed to load assignments");
-      data = await response.json();
-    }
-
-    const assignmentsDiv = document.getElementById("allAssignments");
-    assignmentsDiv.style.display = "block";
-
-    if (Object.keys(data.assignments).length === 0) {
-      assignmentsDiv.innerHTML = "<p>No assignments yet.</p>";
-      return;
-    }
-
-    assignmentsDiv.innerHTML = "";
-    Object.entries(data.assignments).forEach(([player, assignedTo]) => {
-      const item = document.createElement("div");
-      item.className = "assignment-item";
-      const displayValue = Array.isArray(assignedTo)
-        ? assignedTo.join(" and ")
-        : assignedTo;
-      item.innerHTML = `<strong>${player}</strong> → ${displayValue}`;
-      assignmentsDiv.appendChild(item);
-    });
-
-    if (data.doubleSpinner) {
-      const info = document.createElement("p");
-      info.style.marginTop = "10px";
-      info.style.color = "#667eea";
-      info.textContent = `Double-spinner: ${data.doubleSpinner}`;
-      assignmentsDiv.appendChild(info);
-    }
-  } catch (error) {
-    console.error("Load assignments data failed:", error);
-  }
-}
-
-async function handleLogout() {
-  try {
-    await fetch(`${API_BASE}/logout`, {
-      method: "POST",
-      credentials: "include",
-    });
-  } catch (error) {
-    console.error("Logout failed:", error);
+  if (!assignmentsVisible) {
+    list.textContent = "";
+    return;
   }
 
-  if (window.gameStatusInterval) {
-    clearInterval(window.gameStatusInterval);
+  const entries = Object.entries(data.assignments);
+  if (entries.length === 0) {
+    list.textContent = "No spins yet.";
+    return;
   }
-  if (window.adminUpdateInterval) {
-    clearInterval(window.adminUpdateInterval);
+
+  list.textContent = "";
+  entries.forEach(([player, assignedTo]) => {
+    const item = document.createElement("div");
+    item.className = "assignment-item";
+    const who = document.createElement("strong");
+    who.textContent = player;
+    const to = Array.isArray(assignedTo) ? assignedTo.join(" and ") : assignedTo;
+    item.append(who, ` → ${to}`);
+    list.appendChild(item);
+  });
+
+  if (data.doubleSpinner) {
+    const info = document.createElement("p");
+    info.className = "muted";
+    info.textContent = `Double-spinner: ${data.doubleSpinner}`;
+    list.appendChild(info);
   }
-
-  currentUser = null;
-  currentRole = null;
-  showScreen("loginScreen");
-
-  document.getElementById("playerSelect").value = "";
-  document.getElementById("passwordInput").value = "";
-  document.getElementById("loginError").textContent = "";
-
-  await loadPlayersForLogin();
 }
