@@ -596,6 +596,40 @@ app.post("/api/admin/start", validateSession, requireAdmin, (req, res) => {
   res.json({ success: true, doubleSpinner: draw.doubleSpinner });
 });
 
+// Re-draws everything that has not been revealed yet. Results players have already
+// seen (including a double-spinner's first spin) are kept exactly as they are.
+app.post("/api/admin/redraw", validateSession, requireAdmin, (req, res) => {
+  const { gameState } = state;
+  if (gameState.phase !== "started") {
+    return res.status(400).json({ error: "There is no running draw to re-draw." });
+  }
+
+  const participants = [...gameState.plan.keys()].map((name) => ({
+    name,
+    family: (getPlayer(name) || {}).family || "",
+  }));
+
+  const fixed = {};
+  for (const name of gameState.plan.keys()) {
+    const revealed = revealedFor(name);
+    if (revealed.length) fixed[name] = revealed;
+  }
+
+  const result = buildAssignments({
+    participants,
+    doubleSpinner: gameState.doubleSpinner,
+    enforceFamilies: gameState.enforceFamilies,
+    fixed,
+  });
+  if (!result.ok) {
+    return res.status(400).json({ error: result.reason });
+  }
+
+  gameState.plan = new Map(Object.entries(result.assignments));
+  save();
+  res.json({ success: true, kept: Object.keys(fixed).length });
+});
+
 app.post("/api/admin/reset", validateSession, requireAdmin, (req, res) => {
   state.gameState = freshGameState();
 

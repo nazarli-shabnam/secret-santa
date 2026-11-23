@@ -30,6 +30,7 @@ npm test           # draw-logic tests
    - If anyone is missing, the game is **cancelled**. Press Reset to try again.
 5. Players press **Fırlat** (Spin). A short "make sure it's you" screen shows for about 2.5 seconds, then the result appears and stays on their screen. The Spin button disappears once a player has used all their spins (once, or twice for the double-spinner), and the server refuses extra spins.
 6. The admin can always see the full draw at the bottom of the admin panel (hidden behind a "Show draw" button), even before anyone spins.
+   If something goes wrong, **Re-draw unrevealed** (under the full draw) re-mixes everyone who has not spun yet. Results already revealed never change, and the new draw still follows every rule.
 
 **Reset game** clears the draw and the login tracking. Tick "Also delete all players" to remove everyone except the admin.
 

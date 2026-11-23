@@ -122,6 +122,7 @@ function setupEventListeners() {
   $("adminParticipates").addEventListener("change", loadAdminData);
   $("deadlineInput").addEventListener("input", renderStartButton);
   $("toggleAssignmentsBtn").addEventListener("click", toggleAssignmentsView);
+  $("redrawBtn").addEventListener("click", handleRedraw);
 }
 
 // ---------- auth ----------
@@ -630,6 +631,20 @@ function toggleAssignmentsView() {
   loadAssignments();
 }
 
+async function handleRedraw() {
+  const ok = confirm(
+    "Re-draw everyone who has not spun yet? Results that were already revealed stay the same."
+  );
+  if (!ok) return;
+
+  const result = await api("/admin/redraw", { method: "POST" });
+  if (!result.ok) {
+    alert(result.data.error || "Failed to re-draw");
+    return;
+  }
+  await loadAdminData();
+}
+
 async function loadAssignments() {
   const { ok, data } = await api("/admin/assignments");
   if (!ok) return;
@@ -641,6 +656,7 @@ async function loadAssignments() {
   // The full draw is always available to the admin, but hidden until asked for.
   section.classList.remove("hidden");
   toggleBtn.classList.toggle("hidden", !data.gameStarted);
+  $("redrawSection").classList.toggle("hidden", !data.gameStarted);
   if (!data.gameStarted) {
     list.textContent = "The draw appears here once the game starts.";
     return;
@@ -656,7 +672,9 @@ async function loadAssignments() {
     item.className = "assignment-item";
     const who = document.createElement("strong");
     who.textContent = player;
-    const spunNote = info.spun >= info.receivers.length ? " (spun)" : "";
+    const total = info.receivers.length;
+    const spunNote =
+      info.spun >= total ? " (spun)" : info.spun > 0 ? ` (${info.spun} of ${total} spun)` : "";
     item.append(who, ` → ${info.receivers.join(" and ")}${spunNote}`);
     list.appendChild(item);
   });

@@ -95,3 +95,57 @@ test("stress: random rosters", () => {
     }
   }
 });
+
+test("re-draw keeps revealed results and stays valid (stress)", () => {
+  for (let i = 0; i < 500; i++) {
+    const familyCount = 2 + Math.floor(Math.random() * 4);
+    const spec = Array.from({ length: familyCount }, (_, f) => [
+      Math.random() < 0.2 ? "" : `f${f}`,
+      1 + Math.floor(Math.random() * 4),
+    ]);
+    const participants = people(spec);
+    const enforceFamilies = Math.random() < 0.7;
+    const doubleSpinner = participants.length % 2 ? participants[0].name : null;
+    if (validateRoster({ participants, doubleSpinner, enforceFamilies })) continue;
+
+    const first = buildAssignments({ participants, doubleSpinner, enforceFamilies });
+    assert.ok(first.ok, first.reason);
+
+    // pretend a random subset already spun (some double-spinner partially)
+    const fixed = {};
+    for (const p of participants) {
+      if (Math.random() < 0.5) {
+        const all = first.assignments[p.name];
+        fixed[p.name] = all.slice(0, 1 + Math.floor(Math.random() * all.length));
+      }
+    }
+
+    const again = buildAssignments({ participants, doubleSpinner, enforceFamilies, fixed });
+    assert.ok(again.ok, again.reason); // the first draw is itself a valid completion
+
+    const familyOf = new Map(participants.map((p) => [p.name, (p.family || "").toLowerCase()]));
+    const received = new Map();
+    for (const p of participants) {
+      const gifts = again.assignments[p.name];
+      assert.strictEqual(gifts.length, p.name === doubleSpinner ? 2 : 1);
+      assert.deepStrictEqual(gifts.slice(0, (fixed[p.name] || []).length), fixed[p.name] || []);
+      assert.strictEqual(new Set(gifts).size, gifts.length);
+      for (const r of gifts) {
+        assert.notStrictEqual(r, p.name);
+        if (enforceFamilies && familyOf.get(p.name)) {
+          assert.notStrictEqual(familyOf.get(r), familyOf.get(p.name));
+        }
+        received.set(r, (received.get(r) || 0) + 1);
+      }
+    }
+    for (const p of participants) {
+      assert.strictEqual(received.get(p.name), p.name === doubleSpinner ? 2 : 1);
+    }
+  }
+});
+
+test("re-draw with nobody spun re-mixes everyone", () => {
+  const participants = people([["", 6]]);
+  const res = buildAssignments({ participants, enforceFamilies: false, fixed: {} });
+  assert.ok(res.ok);
+});

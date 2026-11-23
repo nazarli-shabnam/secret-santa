@@ -55,20 +55,30 @@ function validateRoster({ participants, doubleSpinner = null, enforceFamilies })
 }
 
 // One randomized backtracking attempt, most-constrained givers first.
-function attempt(participants, slots, group, nodeLimit) {
+// `fixed` maps giver -> receivers that are already decided and must be kept.
+function attempt(participants, slots, group, nodeLimit, fixed) {
   const groupSize = new Map();
+  const slotCount = new Map();
   for (const name of slots) {
     const g = group.get(name);
     groupSize.set(g, (groupSize.get(g) || 0) + 1);
+    slotCount.set(name, (slotCount.get(name) || 0) + 1);
   }
-  const givers = shuffle(slots).sort(
+
+  const remaining = new Map(slotCount); // receiver slots still free
+  const result = new Map(participants.map((p) => [p.name, [...(fixed[p.name] || [])]]));
+  for (const receivers of Object.values(fixed)) {
+    for (const r of receivers) remaining.set(r, (remaining.get(r) || 0) - 1);
+  }
+
+  const toPlace = [];
+  for (const [name, count] of slotCount) {
+    for (let i = result.get(name).length; i < count; i++) toPlace.push(name);
+  }
+  const givers = shuffle(toPlace).sort(
     (a, b) => groupSize.get(group.get(b)) - groupSize.get(group.get(a))
   );
 
-  const remaining = new Map();
-  for (const name of slots) remaining.set(name, (remaining.get(name) || 0) + 1);
-
-  const result = new Map(participants.map((p) => [p.name, []]));
   let nodes = 0;
 
   function place(i) {
@@ -77,7 +87,7 @@ function attempt(participants, slots, group, nodeLimit) {
     const giver = givers[i];
     const already = result.get(giver);
     for (const receiver of shuffle([...remaining.keys()])) {
-      if (remaining.get(receiver) === 0) continue;
+      if (remaining.get(receiver) <= 0) continue;
       if (group.get(receiver) === group.get(giver)) continue;
       if (already.includes(receiver)) continue;
       remaining.set(receiver, remaining.get(receiver) - 1);
@@ -94,18 +104,29 @@ function attempt(participants, slots, group, nodeLimit) {
 
 // participants: [{ name, family }]. Returns { ok: true, assignments: { giver: [receivers] } }
 // or { ok: false, reason }.
-function buildAssignments({ participants, doubleSpinner = null, enforceFamilies }) {
-  const reason = validateRoster({ participants, doubleSpinner, enforceFamilies });
-  if (reason) return { ok: false, reason };
+// `fixed` (optional, giver -> receivers) keeps results that were already revealed and
+// re-draws only the rest; the kept receivers always come first in each giver's list.
+function buildAssignments({ participants, doubleSpinner = null, enforceFamilies, fixed = {} }) {
+  const hasFixed = Object.values(fixed).some((r) => r.length > 0);
+
+  if (!hasFixed) {
+    const reason = validateRoster({ participants, doubleSpinner, enforceFamilies });
+    if (reason) return { ok: false, reason };
+  }
 
   const group = makeGroupOf(participants, enforceFamilies);
   const slots = slotsFor(participants, doubleSpinner);
 
   for (let i = 0; i < 100; i++) {
-    const result = attempt(participants, slots, group, 5000);
+    const result = attempt(participants, slots, group, 5000, fixed);
     if (result) return { ok: true, assignments: Object.fromEntries(result) };
   }
-  return { ok: false, reason: "Could not find a valid draw with these rules. Try adjusting families or the double-spinner." };
+  return {
+    ok: false,
+    reason: hasFixed
+      ? "Could not re-draw without changing results that were already revealed."
+      : "Could not find a valid draw with these rules. Try adjusting families or the double-spinner.",
+  };
 }
 
 module.exports = { buildAssignments, validateRoster };
