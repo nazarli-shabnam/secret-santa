@@ -25,7 +25,7 @@ npm test           # draw-logic tests
 2. Add every player (name, password, optional family) and send each their password.
 3. Choose the rules: admin plays too?, family rule on/off, double-spinner (if odd).
 4. Either press **Start game now**, or set a **login deadline** first:
-   - Everyone must log in before the deadline (the admin sees who is missing).
+   - Everyone must log in before the deadline (the admin sees who is missing). The admin can move the deadline while the countdown is running.
    - The draw is made as soon as you start the countdown. Only the admin can see it (and re-draw it) until the deadline; players just see the countdown.
    - When the timer ends, players get their Spin button if everyone logged in.
    - If anyone is missing, the game is **cancelled**. Press Reset to try again.

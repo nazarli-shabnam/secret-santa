@@ -546,6 +546,28 @@ app.delete(
   }
 );
 
+function deadlineProblem(deadline) {
+  if (!Number.isFinite(deadline) || deadline <= Date.now()) return "Deadline must be in the future";
+  if (deadline - Date.now() > MAX_DEADLINE_MS) return "Deadline must be within 60 days";
+  return null;
+}
+
+// Moves the login deadline of a game that is still waiting for logins.
+app.post("/api/admin/deadline", validateSession, requireAdmin, (req, res) => {
+  const { gameState } = state;
+  if (gameState.phase !== "waiting") {
+    return res.status(400).json({ error: "There is no login countdown to change." });
+  }
+
+  const deadline = Number(req.body.deadline);
+  const problem = deadlineProblem(deadline);
+  if (problem) return res.status(400).json({ error: problem });
+
+  gameState.schedule.deadline = deadline;
+  save();
+  res.json({ success: true });
+});
+
 // Starts the draw now, or, when `deadline` (ms timestamp) is given, opens a login
 // window and starts the draw automatically when it ends if everyone has logged in.
 app.post("/api/admin/start", validateSession, requireAdmin, (req, res) => {
@@ -565,12 +587,8 @@ app.post("/api/admin/start", validateSession, requireAdmin, (req, res) => {
 
   const deadline = Number(req.body.deadline);
   if (req.body.deadline) {
-    if (!Number.isFinite(deadline) || deadline <= Date.now()) {
-      return res.status(400).json({ error: "Deadline must be in the future" });
-    }
-    if (deadline - Date.now() > MAX_DEADLINE_MS) {
-      return res.status(400).json({ error: "Deadline must be within 60 days" });
-    }
+    const problem = deadlineProblem(deadline);
+    if (problem) return res.status(400).json({ error: problem });
     state.gameState = {
       ...freshGameState(),
       phase: "waiting",

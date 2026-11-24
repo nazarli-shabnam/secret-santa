@@ -123,6 +123,7 @@ function setupEventListeners() {
   $("deadlineInput").addEventListener("input", renderStartButton);
   $("toggleAssignmentsBtn").addEventListener("click", toggleAssignmentsView);
   $("redrawBtn").addEventListener("click", handleRedraw);
+  $("changeDeadlineBtn").addEventListener("click", handleChangeDeadline);
 }
 
 // ---------- auth ----------
@@ -431,6 +432,27 @@ function renderBanner(d) {
   }
 
   $("playGameSection").classList.toggle("hidden", !d.adminPlays);
+
+  const waiting = d.phase === "waiting";
+  $("changeDeadlineSection").classList.toggle("hidden", !waiting);
+  if (waiting && d.deadline !== shownDeadline) {
+    shownDeadline = d.deadline;
+    const local = new Date(d.deadline - new Date(d.deadline).getTimezoneOffset() * 60000);
+    $("changeDeadlineInput").value = local.toISOString().slice(0, 16);
+  }
+}
+
+let shownDeadline = null;
+
+async function handleChangeDeadline() {
+  const value = $("changeDeadlineInput").value;
+  if (!value) return;
+  const { ok, data } = await api("/admin/deadline", {
+    method: "POST",
+    body: { deadline: new Date(value).getTime() },
+  });
+  if (!ok) alert(data.error || "Failed to change deadline");
+  await loadAdminData();
 }
 
 function fillSelect(select, firstLabel, extra, players) {
