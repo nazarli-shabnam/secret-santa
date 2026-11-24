@@ -397,10 +397,9 @@ app.get("/api/game/status", validateSession, (req, res) => {
     const isParticipant = participants.some((p) => p.name === name);
     body.state = isParticipant ? "waiting" : "notParticipating";
     body.deadline = schedule.deadline;
-    body.people = participants.map((p) => ({
-      name: p.name,
-      in: gameState.loggedIn.has(p.name),
-    }));
+    // Only reveal who has logged in; others see just how many are still missing.
+    body.people = participants.filter((p) => gameState.loggedIn.has(p.name)).map((p) => p.name);
+    body.total = participants.length;
   } else if (gameState.phase === "started") {
     const slots = gameState.plan.get(name);
     if (slots) {

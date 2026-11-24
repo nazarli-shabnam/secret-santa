@@ -296,16 +296,15 @@ function renderGame(d) {
 }
 
 function renderWaiting(d) {
-  const inCount = d.people.filter((p) => p.in).length;
-  $("loggedInCount").textContent = t("loggedInCount", { in: inCount, total: d.people.length });
-  $("meterFill").style.width = `${(inCount / d.people.length) * 100}%`;
+  $("loggedInCount").textContent = t("loggedInCount", { in: d.people.length, total: d.total });
+  $("meterFill").style.width = `${(d.people.length / d.total) * 100}%`;
 
   const chips = $("people");
   chips.innerHTML = "";
-  d.people.forEach((p) => {
+  d.people.forEach((name) => {
     const chip = document.createElement("span");
-    chip.className = p.in ? "chip in" : "chip";
-    chip.textContent = p.name;
+    chip.className = "chip in";
+    chip.textContent = name;
     chips.appendChild(chip);
   });
 
