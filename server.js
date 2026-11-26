@@ -461,13 +461,15 @@ app.get("/api/admin/players", validateSession, requireAdmin, (req, res) => {
     cancelReason: gameState.cancelReason,
   };
 
-  if (gameState.phase === "waiting") {
-    const { schedule } = gameState;
-    body.deadline = schedule.deadline;
-    body.waitingFor = participantsFor(schedule.adminName, schedule.adminParticipates)
-      .map((p) => p.name)
-      .filter((n) => !gameState.loggedIn.has(n));
-    body.participantCount = participantsFor(schedule.adminName, schedule.adminParticipates).length;
+  if (gameState.phase === "waiting" || gameState.phase === "started") {
+    const names =
+      gameState.phase === "waiting"
+        ? participantsFor(gameState.schedule.adminName, gameState.schedule.adminParticipates).map((p) => p.name)
+        : [...gameState.plan.keys()];
+    if (gameState.phase === "waiting") body.deadline = gameState.schedule.deadline;
+    body.waitingFor = names.filter((n) => !gameState.loggedIn.has(n));
+    body.participantCount = names.length;
+    body.spunCount = names.filter((n) => (gameState.spinCounts.get(n) || 0) > 0).length;
   }
 
   res.json(body);
@@ -551,18 +553,32 @@ function deadlineProblem(deadline) {
   return null;
 }
 
-// Moves the login deadline of a game that is still waiting for logins.
+// Moves the login deadline of a game that is waiting for logins, or adds a countdown
+// to a game that has already started (keeping its draw, so no re-draw is needed).
 app.post("/api/admin/deadline", validateSession, requireAdmin, (req, res) => {
   const { gameState } = state;
-  if (gameState.phase !== "waiting") {
-    return res.status(400).json({ error: "There is no login countdown to change." });
+  if (gameState.phase !== "waiting" && gameState.phase !== "started") {
+    return res.status(400).json({ error: "There is no game to put a login countdown on." });
   }
 
   const deadline = Number(req.body.deadline);
   const problem = deadlineProblem(deadline);
   if (problem) return res.status(400).json({ error: problem });
 
-  gameState.schedule.deadline = deadline;
+  if (gameState.phase === "waiting") {
+    gameState.schedule.deadline = deadline;
+  } else {
+    state.gameState = {
+      ...gameState,
+      phase: "waiting",
+      schedule: {
+        deadline,
+        adminName: req.session.name,
+        adminParticipates: gameState.adminParticipates,
+        enforceFamilies: gameState.enforceFamilies,
+      },
+    };
+  }
   save();
   res.json({ success: true });
 });

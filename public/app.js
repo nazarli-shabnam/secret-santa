@@ -433,7 +433,10 @@ function renderBanner(d) {
   $("playGameSection").classList.toggle("hidden", !d.adminPlays);
 
   const waiting = d.phase === "waiting";
-  $("changeDeadlineSection").classList.toggle("hidden", !waiting);
+  const started = d.phase === "started";
+  $("changeDeadlineSection").classList.toggle("hidden", !waiting && !started);
+  $("changeDeadlineLabel").textContent = started ? "Add a login countdown" : "Change login deadline";
+  $("changeDeadlineBtn").textContent = started ? "Start countdown" : "Update deadline";
   if (waiting && d.deadline !== shownDeadline) {
     shownDeadline = d.deadline;
     const local = new Date(d.deadline - new Date(d.deadline).getTimezoneOffset() * 60000);
@@ -446,6 +449,17 @@ let shownDeadline = null;
 async function handleChangeDeadline() {
   const value = $("changeDeadlineInput").value;
   if (!value) return;
+  const d = lastAdminData;
+  if (d.phase === "started") {
+    const loggedIn = d.participantCount - d.waitingFor.length;
+    const proceed = confirm(
+      `The game has already started. ${loggedIn} of ${d.participantCount} players have logged in, ` +
+        `and ${d.spunCount} have already spun.\n\n` +
+        "Adding a countdown keeps the current draw, but hides the game from players until the deadline " +
+        "(results already revealed reappear then). If anyone hasn't logged in by the deadline, the game is cancelled.\n\nContinue?"
+    );
+    if (!proceed) return;
+  }
   const { ok, data } = await api("/admin/deadline", {
     method: "POST",
     body: { deadline: new Date(value).getTime() },
